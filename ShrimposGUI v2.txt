@@ -1,0 +1,1218 @@
+-- Shrimpo's GUI
+-- Made by spinning Shrimpo | TikTok/YouTube/Root/Discord
+
+local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+
+WindUI:SetTheme("Dark")
+
+local Window = WindUI:CreateWindow({
+    Title = "Shrimpo's GUI",
+    Icon = "zap",
+    Author = "by spinning Shrimpo",
+    Folder = "SpinningShrimpoHub",
+    Size = UDim2.fromOffset(580, 460),
+    Transparent = true,
+    Theme = "Dark",
+    Resizable = false,
+    ToggleKey = Enum.KeyCode.RightShift,
+})
+
+-- =====================
+-- SERVICES
+-- =====================
+local Players        = game:GetService("Players")
+local RunService     = game:GetService("RunService")
+local Workspace      = game:GetService("Workspace")
+local Lighting       = game:GetService("Lighting")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- =====================
+-- STATE
+-- =====================
+local LoopSpeedEnabled = false
+local LoopSpeedValue   = 16
+local SpinEnabled      = false
+local FullbrightEnabled = false
+local TPoseEnabled     = false
+local tposeConn
+
+local TwistedsESPEnabled = false
+local PlayerESPEnabled   = false
+local playerESPObjects   = {}
+
+_G.SpinSpeed = 50
+
+local originalAmbient        = Lighting.Ambient
+local originalBrightness     = Lighting.Brightness
+local originalOutdoorAmbient = Lighting.OutdoorAmbient
+
+-- =====================
+-- CHARACTER HELPERS
+-- =====================
+local function getChar()  return LocalPlayer.Character end
+local function getHRP()   local c = getChar(); return c and c:FindFirstChild("HumanoidRootPart") end
+local function getHum()   local c = getChar(); return c and c:FindFirstChildOfClass("Humanoid") end
+
+-- =====================
+-- LOOP SPEED
+-- =====================
+RunService.Heartbeat:Connect(function()
+    if not LoopSpeedEnabled then return end
+    local h = getHum()
+    if h then h.WalkSpeed = LoopSpeedValue end
+end)
+
+-- =====================
+-- SPIN
+-- =====================
+local spinConn
+local function startSpin()
+    spinConn = RunService.Heartbeat:Connect(function()
+        local hrp = getHRP()
+        if hrp then
+            local speed = _G.SpinSpeed or 50
+            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(speed) * (1/60), 0)
+        end
+    end)
+end
+local function stopSpin()
+    if spinConn then spinConn:Disconnect(); spinConn = nil end
+end
+
+-- =====================
+-- T-POSE / MOONWALK
+-- =====================
+local function applyTPose(on)
+    local c = getChar()
+    if not c then return end
+    local hum = c:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    if on then
+        hum.AutoRotate = false
+        tposeConn = RunService.Heartbeat:Connect(function()
+            local ch = getChar()
+            if not ch then return end
+            for _, m in ipairs(ch:GetDescendants()) do
+                if m:IsA("Motor6D") then
+                    m.DesiredAngle = 0
+                end
+            end
+        end)
+    else
+        if tposeConn then tposeConn:Disconnect(); tposeConn = nil end
+        if hum then hum.AutoRotate = true end
+    end
+end
+
+-- =====================
+-- ESP
+-- =====================
+local TwistedESPEnabled = false
+local espObjects = {}
+
+local TWISTED_MONSTERS = {
+    "BoxtenMonster", "BrightneyMonster", "BlotMonster", "BrushaMonster",
+    "ConnieMonster", "CosmoMonster", "PebbleMonster", "CoalMonster",
+    "FinnMonster", "FlutterMonster", "GigiMonster", "GlistenMonster",
+    "GoobMonster", "LooeyMonster", "ShellyMonster", "GingerMonster",
+    "PoppyMonster", "ScrapsMonster", "ShrimpoMonster", "SquirmMonster",
+    "TeaganMonster", "SproutMonster", "RudieMonster", "TishaMonster",
+    "ToodlesMonster", "YattaMonster", "AstroMonster", "BassieMonster",
+    "BobetteMonster", "VeeMonster", "DandyMonster", "DyleMonster",
+    "GourdyMonster", "EclipseMonster", "RibbecaMonster", "SoulvesterMonster",
+    "CocoaMonster", "EggsonMonster", "FlyteMonster", "RodgerMonster",
+    "RazzleDazzleMonster",
+}
+
+local function removeESP()
+    for _, obj in ipairs(espObjects) do
+        if obj and obj.Parent then obj:Destroy() end
+    end
+    espObjects = {}
+end
+
+local function createESPLabel(adornee, name)
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee     = adornee
+    bb.AlwaysOnTop = true
+    bb.Size        = UDim2.new(0, 160, 0, 40)
+    bb.StudsOffset = Vector3.new(0, 4, 0)
+    bb.Parent      = adornee
+
+    local bg = Instance.new("Frame")
+    bg.Size            = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3 = Color3.fromRGB(180, 0, 0)
+    bg.BackgroundTransparency = 0.3
+    bg.BorderSizePixel = 0
+    bg.Parent          = bb
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent = bg
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                  = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                  = "⚠ " .. name
+    lbl.TextColor3            = Color3.new(1, 1, 1)
+    lbl.TextStrokeTransparency = 0
+    lbl.TextStrokeColor3      = Color3.new(0, 0, 0)
+    lbl.Font                  = Enum.Font.GothamBold
+    lbl.TextScaled            = true
+    lbl.Parent                = bg
+
+    table.insert(espObjects, bb)
+end
+
+local espTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not TwistedESPEnabled then return end
+    espTimer = espTimer + dt
+    if espTimer < 0.5 then return end
+    espTimer = 0
+    removeESP()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("Model") then
+            for _, monster in ipairs(TWISTED_MONSTERS) do
+                if obj.Name == monster then
+                    local root = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChildWhichIsA("BasePart")
+                    if root then
+                        createESPLabel(root, monster)
+                    end
+                    break
+                end
+            end
+        end
+    end
+end)
+
+-- =====================
+-- FULLBRIGHT
+-- =====================
+local function applyFullbright(on)
+    if on then
+        Lighting.Ambient        = Color3.new(1, 1, 1)
+        Lighting.Brightness     = 2
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") then
+                v.Enabled = false
+            end
+        end
+    else
+        Lighting.Ambient        = originalAmbient
+        Lighting.Brightness     = originalBrightness
+        Lighting.OutdoorAmbient = originalOutdoorAmbient
+        for _, v in ipairs(Lighting:GetChildren()) do
+            if v:IsA("BlurEffect") or v:IsA("ColorCorrectionEffect") or v:IsA("SunRaysEffect") then
+                v.Enabled = true
+            end
+        end
+    end
+end
+
+-- =====================
+-- NOTIFY HELPER
+-- =====================
+local function notify(title, desc, duration)
+    WindUI:Notify({
+        Title = title,
+        Desc = desc,
+        Duration = duration or 4,
+        Icon = "bell",
+    })
+end
+
+-- =====================
+-- TABS
+-- =====================
+local LocalPlayerTab = Window:Tab({ Title = "Local Player", Icon = "user" })
+local EnvironmentTab = Window:Tab({ Title = "Environment",  Icon = "sun" })
+local ESPTab         = Window:Tab({ Title = "ESP",          Icon = "eye" })
+local SillyStuffTab  = Window:Tab({ Title = "Silly Stuff",  Icon = "smile" })
+local ScriptsTab     = Window:Tab({ Title = "Scripts",      Icon = "code" })
+local ClientSidedTab = Window:Tab({ Title = "Client Sided", Icon = "monitor" })
+local SocialsTab     = Window:Tab({ Title = "Socials",      Icon = "link" })
+local CreditsTab     = Window:Tab({ Title = "Credits",      Icon = "star" })
+
+-- =============================================
+-- LOCAL PLAYER TAB
+-- =============================================
+
+LocalPlayerTab:Slider({
+    Title = "Hip Height",
+    Desc  = "Adjusts your character's hip height",
+    Step  = 0.1,
+    Value = { Min = 1, Max = 17, Default = 2 },
+    Callback = function(value)
+        local h = getHum()
+        if h then h.HipHeight = value end
+    end,
+})
+
+LocalPlayerTab:Toggle({
+    Title = "Loop Speed",
+    Desc  = "Continuously applies your walk speed",
+    Value = false,
+    Callback = function(state)
+        LoopSpeedEnabled = state
+        if not state then
+            local h = getHum()
+            if h then h.WalkSpeed = 16 end
+        end
+    end,
+})
+
+LocalPlayerTab:Slider({
+    Title = "Loop Speed Value",
+    Desc  = "Set the walk speed amount",
+    Step  = 1,
+    Value = { Min = 1, Max = 200, Default = 16 },
+    Callback = function(value)
+        LoopSpeedValue = value
+    end,
+})
+
+LocalPlayerTab:Button({
+    Title = "Auto Escape Squirm",
+    Desc  = "Automatically escapes squirm grabs",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/alihusam078588-web/Twilight-zone-loader/refs/heads/main/squirm.lua"))()
+    end,
+})
+
+LocalPlayerTab:Button({
+    Title = "Freecam",
+    Desc  = "Enables free camera movement",
+    Callback = function()
+        loadstring(game:HttpGet("https://rawscripts.net/raw/Universal-Script-Free-Camera-61238"))()
+    end,
+})
+
+-- Teleport section
+LocalPlayerTab:Section({ Title = "Teleport to Player" })
+
+local targetPlayerName = ""
+local teleportCooldown = false
+
+LocalPlayerTab:Input({
+    Title       = "Target Player Name",
+    Desc        = "Enter exact or partial player name",
+    Placeholder = "Enter name...",
+    Callback    = function(input)
+        targetPlayerName = input
+    end,
+})
+
+LocalPlayerTab:Button({
+    Title = "Teleport  (5s cooldown)",
+    Desc  = "Teleport to the entered player",
+    Callback = function()
+        if teleportCooldown then
+            notify("Cooldown", "Wait 5 seconds before teleporting again!")
+            return
+        end
+        local target
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Name:lower():find(targetPlayerName:lower(), 1, true) then
+                target = p; break
+            end
+        end
+        if target and target.Character then
+            local tHRP = target.Character:FindFirstChild("HumanoidRootPart")
+            local mHRP = getHRP()
+            if tHRP and mHRP then
+                mHRP.CFrame = tHRP.CFrame + Vector3.new(3, 0, 0)
+                teleportCooldown = true
+                notify("Teleported!", "Jumped to " .. target.Name)
+                task.delay(5, function() teleportCooldown = false end)
+                return
+            end
+        end
+        notify("Error", "Player '" .. targetPlayerName .. "' not found.")
+    end,
+})
+
+-- =============================================
+-- ESP TAB
+-- =============================================
+
+-- =============================================
+-- ENVIRONMENT TAB
+-- =============================================
+
+EnvironmentTab:Toggle({
+    Title = "Fullbright",
+    Desc  = "Maxes out lighting so you can see everything",
+    Value = false,
+    Callback = function(state)
+        FullbrightEnabled = state
+        applyFullbright(state)
+    end,
+})
+
+EnvironmentTab:Slider({
+    Title = "FOV",
+    Desc  = "Adjust your camera field of view",
+    Step  = 1,
+    Value = { Min = 60, Max = 120, Default = 70 },
+    Callback = function(value)
+        local cam = Workspace.CurrentCamera
+        if cam then cam.FieldOfView = value end
+    end,
+})
+
+EnvironmentTab:Button({
+    Title = "Disable Rendering",
+    Desc  = "Executes disable rendering script",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/xneo-debug/Rendering/refs/heads/main/Disable%20rendering"))()
+    end,
+})
+
+-- =============================================
+-- ESP TAB
+-- =============================================
+
+local TWISTED_DATA = {
+    -- Common
+    BoxtenMonster       = "Common",
+    BrushaMonster       = "Common",
+    CosmoMonster        = "Common",
+    EggsonMonster       = "Common",
+    LooeyMonster        = "Common",
+    PoppyMonster        = "Common",
+    RibbecaMonster      = "Common",
+    RudieMonster        = "Common",
+    ShrimpoMonster      = "Common",
+    TishaMonster        = "Common",
+    YattaMonster        = "Common",
+    -- Uncommon
+    BrightneyMonster    = "Uncommon",
+    ConnieMonster       = "Uncommon",
+    FinnMonster         = "Uncommon",
+    FlyteMonster        = "Uncommon",
+    GingerMonster       = "Uncommon",
+    RazzleDazzleMonster = "Uncommon",
+    RodgerMonster       = "Uncommon",
+    SoulvesterMonster   = "Uncommon",
+    TeaganMonster       = "Uncommon",
+    ToodlesMonster      = "Uncommon",
+    -- Rare
+    BlotMonster         = "Rare",
+    CoalMonster         = "Rare",
+    CocoaMonster        = "Rare",
+    EclipseMonster      = "Rare",
+    FlutterMonster      = "Rare",
+    GigiMonster         = "Rare",
+    GlistenMonster      = "Rare",
+    GoobMonster         = "Rare",
+    ScrapsMonster       = "Rare",
+    SquirmMonster       = "Rare",
+    -- Main
+    AstroMonster        = "Main",
+    BassieMonster       = "Main",
+    BobetteMonster      = "Main",
+    GourdyMonster       = "Main",
+    PebbleMonster       = "Main",
+    ShellyMonster       = "Main",
+    SproutMonster       = "Main",
+    VeeMonster          = "Main",
+    -- Lethal
+    DandyMonster        = "Lethal",
+    DyleMonster         = "Lethal",
+}
+
+local rarityTextColors = {
+    Common   = Color3.fromRGB(255, 255, 255),  -- White
+    Uncommon = Color3.fromRGB(180, 180, 180),  -- Gray
+    Rare     = Color3.fromRGB(80,  140, 255),  -- Blue
+    Main     = Color3.fromRGB(80,  220, 80),   -- Green
+    Lethal   = Color3.fromRGB(220, 0,   0),    -- Red
+}
+
+local function clearESP()
+    for _, obj in ipairs(espObjects) do
+        if obj and obj.Parent then obj:Destroy() end
+    end
+    espObjects = {}
+end
+
+local function applyESP(model, twistedName, rarity)
+    local greenTwisteds  = { BobetteMonster=true, RudieMonster=true, GingerMonster=true, CoalMonster=true }
+    local purpleTwisteds = { BassieMonster=true, CocoaMonster=true, EggsonMonster=true, FlyteMonster=true }
+    local orangeTwisteds = { GourdyMonster=true, EclipseMonster=true, RibbecaMonster=true, SoulvesterMonster=true }
+    local blackTwisteds  = { DandyMonster=true, DyleMonster=true }
+
+    local fillColor, outlineColor
+
+    if blackTwisteds[twistedName] then
+        fillColor    = Color3.fromRGB(10,  10,  10)
+        outlineColor = Color3.fromRGB(0,   0,   0)
+    elseif greenTwisteds[twistedName] then
+        fillColor    = Color3.fromRGB(0,   180, 0)
+        outlineColor = Color3.fromRGB(0,   255, 80)
+    elseif purpleTwisteds[twistedName] then
+        fillColor    = Color3.fromRGB(120, 0,   200)
+        outlineColor = Color3.fromRGB(180, 80,  255)
+    elseif orangeTwisteds[twistedName] then
+        fillColor    = Color3.fromRGB(220, 100, 0)
+        outlineColor = Color3.fromRGB(255, 160, 50)
+    else
+        fillColor    = Color3.fromRGB(180, 0,   0)
+        outlineColor = Color3.fromRGB(255, 50,  50)
+    end
+
+    local hl = Instance.new("Highlight")
+    hl.FillColor           = fillColor
+    hl.OutlineColor        = outlineColor
+    hl.FillTransparency    = 0.4
+    hl.OutlineTransparency = 0
+    hl.Adornee             = model
+    hl.Parent              = model
+    table.insert(espObjects, hl)
+
+    local rootPart = model:IsA("Model") and (model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart")) or model
+    if not rootPart then return end
+
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee     = rootPart
+    bb.AlwaysOnTop = true
+    bb.Size        = UDim2.new(0, 180, 0, 30)
+    bb.StudsOffset = Vector3.new(0, 5, 0)
+    bb.Parent      = rootPart
+
+    local displayName = twistedName:gsub("Monster", "")
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(1, 0, 1, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = "Twisted " .. displayName .. " | " .. rarity
+    lbl.TextColor3             = rarityTextColors[rarity] or Color3.new(1,1,1)
+    lbl.TextStrokeTransparency = 0
+    lbl.TextStrokeColor3       = Color3.new(0, 0, 0)
+    lbl.Font                   = Enum.Font.GothamBold
+    lbl.TextSize               = 11
+    lbl.TextScaled             = false
+    lbl.Parent                 = bb
+
+    table.insert(espObjects, bb)
+end
+
+local espTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not TwistedsESPEnabled then return end
+    espTimer = espTimer + dt
+    if espTimer < 1 then return end
+    espTimer = 0
+
+    clearESP()
+
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        local rarity = TWISTED_DATA[obj.Name]
+        if rarity then
+            applyESP(obj, obj.Name, rarity)
+        end
+    end
+end)
+
+ESPTab:Toggle({
+    Title = "Twisted ESP",
+    Desc  = "Red highlight + name label on all Twisted monsters",
+    Value = false,
+    Callback = function(state)
+        TwistedsESPEnabled = state
+        if not state then clearESP() end
+    end,
+})
+
+-- =====================
+-- PLAYER ESP
+-- =====================
+local function clearPlayerESP()
+    for _, obj in ipairs(playerESPObjects) do
+        if obj and obj.Parent then obj:Destroy() end
+    end
+    playerESPObjects = {}
+end
+
+local function getPlayerHearts(player)
+    local char = player.Character
+    if not char then return 0 end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return 0 end
+    local hp = math.floor(hum.Health)
+    -- Dandy's World: each heart = 100hp, max 4 hearts = 400hp
+    if hp >= 400 then return 4
+    elseif hp >= 300 then return 3
+    elseif hp >= 200 then return 2
+    elseif hp >= 100 then return 1
+    else return 0
+    end
+end
+
+local function getHeartColor(hearts, hp)
+    if hp >= 400 then
+        -- 4 hearts: blue
+        return Color3.fromRGB(0, 100, 255), Color3.fromRGB(100, 180, 255)
+    elseif hp >= 300 then
+        -- 3 hearts: blue
+        return Color3.fromRGB(0, 100, 255), Color3.fromRGB(100, 180, 255)
+    elseif hp >= 200 then
+        -- 2 hearts: dark blue
+        return Color3.fromRGB(0, 0, 160), Color3.fromRGB(0, 50, 200)
+    elseif hp >= 100 then
+        -- 1 heart: blue
+        return Color3.fromRGB(0, 100, 255), Color3.fromRGB(100, 180, 255)
+    else
+        -- 0 hp / dead: black
+        return Color3.fromRGB(10, 10, 10), Color3.fromRGB(50, 50, 50)
+    end
+end
+
+local function isInLobby()
+    -- Dandy's World lobby detection: no "Rounds" folder or game not started
+    local roundsFolder = Workspace:FindFirstChild("Rounds") or Workspace:FindFirstChild("Round") or Workspace:FindFirstChild("GameFolder")
+    local floorFolder  = Workspace:FindFirstChild("Floor") or Workspace:FindFirstChild("Floors")
+    return not roundsFolder and not floorFolder
+end
+
+local function applyPlayerESP(player)
+    local char = player.Character
+    if not char or player == LocalPlayer then return end
+
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local lobby = isInLobby()
+
+    -- Default blue for lobby or unknown
+    local fillColor    = Color3.fromRGB(0, 100, 255)
+    local outlineColor = Color3.fromRGB(100, 180, 255)
+
+    if not lobby then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hp  = hum and math.floor(hum.Health) or 0
+        local hearts = getPlayerHearts(player)
+        fillColor, outlineColor = getHeartColor(hearts, hp)
+    end
+
+    -- Highlight
+    local hl = Instance.new("Highlight")
+    hl.FillColor           = fillColor
+    hl.OutlineColor        = outlineColor
+    hl.FillTransparency    = 0.4
+    hl.OutlineTransparency = 0
+    hl.Adornee             = char
+    hl.Parent              = char
+    table.insert(playerESPObjects, hl)
+
+    -- BillboardGui label
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee     = hrp
+    bb.AlwaysOnTop = true
+    bb.Size        = UDim2.new(0, 220, 0, 70)
+    bb.StudsOffset = Vector3.new(0, 3.5, 0)
+    bb.Parent      = hrp
+
+    local frame = Instance.new("Frame")
+    frame.Size                   = UDim2.new(1, 0, 1, 0)
+    frame.BackgroundTransparency = 1
+    frame.Parent                 = bb
+
+    if lobby then
+        -- Lobby: show username + display name, no hearts
+        local topLabel = Instance.new("TextLabel")
+        topLabel.Size                   = UDim2.new(1, 0, 0.5, 0)
+        topLabel.Position               = UDim2.new(0, 0, 0, 0)
+        topLabel.BackgroundTransparency = 1
+        topLabel.Text                   = player.Name
+        topLabel.TextColor3             = Color3.fromRGB(100, 180, 255)
+        topLabel.TextStrokeTransparency = 0
+        topLabel.TextStrokeColor3       = Color3.new(0, 0, 0)
+        topLabel.Font                   = Enum.Font.GothamBold
+        topLabel.TextScaled             = true
+        topLabel.Parent                 = frame
+
+        local botLabel = Instance.new("TextLabel")
+        botLabel.Size                   = UDim2.new(1, 0, 0.5, 0)
+        botLabel.Position               = UDim2.new(0, 0, 0.5, 0)
+        botLabel.BackgroundTransparency = 1
+        botLabel.Text                   = player.DisplayName
+        botLabel.TextColor3             = Color3.new(1, 1, 1)
+        botLabel.TextStrokeTransparency = 0
+        botLabel.TextStrokeColor3       = Color3.new(0, 0, 0)
+        botLabel.Font                   = Enum.Font.Gotham
+        botLabel.TextScaled             = true
+        botLabel.Parent                 = frame
+    else
+        -- In game: show name + hearts + HP
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        local hp  = hum and math.floor(hum.Health) or 0
+        local hearts = getPlayerHearts(player)
+        local fillColor, outlineColor = getHeartColor(hearts, hp)
+
+        -- Re-apply highlight with correct color
+        hl.FillColor    = fillColor
+        hl.OutlineColor = outlineColor
+
+        local heartStr
+        if hp <= 0 then
+            heartStr = "💀 Dead"
+        else
+            heartStr = string.rep("♥", hearts) .. string.rep("♡", 4 - hearts)
+        end
+
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Size                   = UDim2.new(1, 0, 0.5, 0)
+        nameLabel.Position               = UDim2.new(0, 0, 0, 0)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Text                   = player.Name .. "  " .. heartStr
+        nameLabel.TextColor3             = hp <= 0 and Color3.new(1,1,1) or fillColor
+        nameLabel.TextStrokeTransparency = 0
+        nameLabel.TextStrokeColor3       = Color3.new(0, 0, 0)
+        nameLabel.Font                   = Enum.Font.GothamBold
+        nameLabel.TextScaled             = true
+        nameLabel.Parent                 = frame
+
+        local hpLabel = Instance.new("TextLabel")
+        hpLabel.Size                   = UDim2.new(1, 0, 0.5, 0)
+        hpLabel.Position               = UDim2.new(0, 0, 0.5, 0)
+        hpLabel.BackgroundTransparency = 1
+        hpLabel.Text                   = hp <= 0 and "Dead" or ("HP: " .. hp .. "  |  Hearts: " .. hearts .. "/4")
+        hpLabel.TextColor3             = Color3.new(1, 1, 1)
+        hpLabel.TextStrokeTransparency = 0
+        hpLabel.TextStrokeColor3       = Color3.new(0, 0, 0)
+        hpLabel.Font                   = Enum.Font.Gotham
+        hpLabel.TextScaled             = true
+        hpLabel.Parent                 = frame
+    end
+
+    table.insert(playerESPObjects, bb)
+end
+
+local playerESPTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not PlayerESPEnabled then return end
+    playerESPTimer = playerESPTimer + dt
+    if playerESPTimer < 0.5 then return end
+    playerESPTimer = 0
+
+    clearPlayerESP()
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            applyPlayerESP(p)
+        end
+    end
+end)
+
+ESPTab:Toggle({
+    Title = "Player ESP",
+    Desc  = "Blue highlight on players — color changes with hearts",
+    Value = false,
+    Callback = function(state)
+        PlayerESPEnabled = state
+        if not state then clearPlayerESP() end
+    end,
+})
+
+-- =====================
+-- ITEM ESP
+-- =====================
+local ItemESPEnabled = false
+local itemESPObjects = {}
+
+local ITEM_NAMES = {
+    "Gumball", "Chocolate", "Pop", "Stopwatch", "ProteinBar",
+    "SpeedCandy", "Instructions", "StaminaCandy", "ExtractionSpeedCandy",
+    "StealthCandy", "SkillCheckCandy", "JumperCable", "Bandage",
+    "ChristmasCookie", "Jawbreaker", "AirHorn", "DandyEasterEggs",
+    "HealthKit", "PopBottle", "ChocolateBox", "SmokeBomb",
+    "Valve", "FakeCapsule",
+}
+
+local ITEM_SET = {}
+for _, name in ipairs(ITEM_NAMES) do ITEM_SET[name] = true end
+
+local function clearItemESP()
+    for _, obj in ipairs(itemESPObjects) do
+        if obj and obj.Parent then obj:Destroy() end
+    end
+    itemESPObjects = {}
+end
+
+local function applyItemESP(part, itemName)
+    -- Green highlight on the part/model
+    local hl = Instance.new("Highlight")
+    hl.FillColor           = Color3.fromRGB(0, 180, 0)
+    hl.OutlineColor        = Color3.fromRGB(80, 255, 80)
+    hl.FillTransparency    = 0.3
+    hl.OutlineTransparency = 0
+    hl.Adornee             = part
+    hl.Parent              = part
+    table.insert(itemESPObjects, hl)
+
+    -- Billboard label styled like the screenshot (green box, black bold text)
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee     = part
+    bb.AlwaysOnTop = true
+    bb.Size        = UDim2.new(0, 80, 0, 24)
+    bb.StudsOffset = Vector3.new(0, 2.5, 0)
+    bb.Parent      = part
+
+    local bg = Instance.new("Frame")
+    bg.Size                  = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3      = Color3.fromRGB(60, 180, 60)
+    bg.BackgroundTransparency = 0.1
+    bg.BorderSizePixel       = 0
+    bg.Parent                = bb
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent       = bg
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(1, -4, 1, 0)
+    lbl.Position               = UDim2.new(0, 2, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = itemName
+    lbl.TextColor3             = Color3.fromRGB(0, 0, 0)
+    lbl.TextStrokeTransparency = 1
+    lbl.Font                   = Enum.Font.GothamBold
+    lbl.TextSize               = 11
+    lbl.TextScaled             = false
+    lbl.Parent                 = bg
+
+    table.insert(itemESPObjects, bb)
+end
+
+local itemESPTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not ItemESPEnabled then return end
+    itemESPTimer = itemESPTimer + dt
+    if itemESPTimer < 1 then return end
+    itemESPTimer = 0
+
+    clearItemESP()
+
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if ITEM_SET[obj.Name] and obj:IsA("BasePart") then
+            applyItemESP(obj, obj.Name)
+        end
+    end
+end)
+
+ESPTab:Toggle({
+    Title = "Item ESP",
+    Desc  = "Green highlight + label on all items",
+    Value = false,
+    Callback = function(state)
+        ItemESPEnabled = state
+        if not state then clearItemESP() end
+    end,
+})
+
+-- =====================
+-- ELEVATOR ESP
+-- =====================
+local ElevatorESPEnabled = false
+local elevatorESPObjects = {}
+
+local ELEVATOR_NAMES = { Elevator = true, FakeElevator = true }
+
+local function clearElevatorESP()
+    for _, obj in ipairs(elevatorESPObjects) do
+        if obj and obj.Parent then obj:Destroy() end
+    end
+    elevatorESPObjects = {}
+end
+
+local function applyElevatorESP(part, itemName)
+    local hl = Instance.new("Highlight")
+    hl.FillColor           = Color3.fromRGB(10, 10, 10)
+    hl.OutlineColor        = Color3.fromRGB(60, 60, 60)
+    hl.FillTransparency    = 0.3
+    hl.OutlineTransparency = 0
+    hl.Adornee             = part
+    hl.Parent              = part
+    table.insert(elevatorESPObjects, hl)
+
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee     = part
+    bb.AlwaysOnTop = true
+    bb.Size        = UDim2.new(0, 100, 0, 24)
+    bb.StudsOffset = Vector3.new(0, 4, 0)
+    bb.Parent      = part
+
+    local bg = Instance.new("Frame")
+    bg.Size                   = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3       = Color3.fromRGB(20, 20, 20)
+    bg.BackgroundTransparency = 0.1
+    bg.BorderSizePixel        = 0
+    bg.Parent                 = bb
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent       = bg
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(1, -4, 1, 0)
+    lbl.Position               = UDim2.new(0, 2, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = itemName
+    lbl.TextColor3             = Color3.fromRGB(255, 255, 255)
+    lbl.TextStrokeTransparency = 1
+    lbl.Font                   = Enum.Font.GothamBold
+    lbl.TextSize               = 11
+    lbl.TextScaled             = false
+    lbl.Parent                 = bg
+
+    table.insert(elevatorESPObjects, bb)
+end
+
+local elevatorESPTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not ElevatorESPEnabled then return end
+    elevatorESPTimer = elevatorESPTimer + dt
+    if elevatorESPTimer < 1 then return end
+    elevatorESPTimer = 0
+    clearElevatorESP()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if ELEVATOR_NAMES[obj.Name] and obj:IsA("BasePart") then
+            applyElevatorESP(obj, obj.Name)
+        end
+    end
+end)
+
+ESPTab:Toggle({
+    Title = "Elevator ESP",
+    Desc  = "Black highlight on Elevator and FakeElevator",
+    Value = false,
+    Callback = function(state)
+        ElevatorESPEnabled = state
+        if not state then clearElevatorESP() end
+    end,
+})
+
+-- =====================
+-- TENDRIL/HAND ESP
+-- =====================
+local TendrilESPEnabled = false
+local tendrilESPObjects = {}
+
+local TENDRIL_NAMES = { SproutTendril = true, BlotHand = true }
+
+local function clearTendrilESP()
+    for _, obj in ipairs(tendrilESPObjects) do
+        if obj and obj.Parent then obj:Destroy() end
+    end
+    tendrilESPObjects = {}
+end
+
+local function applyTendrilESP(part, itemName)
+    local hl = Instance.new("Highlight")
+    hl.FillColor           = Color3.fromRGB(180, 0, 0)
+    hl.OutlineColor        = Color3.fromRGB(255, 50, 50)
+    hl.FillTransparency    = 0.3
+    hl.OutlineTransparency = 0
+    hl.Adornee             = part
+    hl.Parent              = part
+    table.insert(tendrilESPObjects, hl)
+
+    local bb = Instance.new("BillboardGui")
+    bb.Adornee     = part
+    bb.AlwaysOnTop = true
+    bb.Size        = UDim2.new(0, 110, 0, 24)
+    bb.StudsOffset = Vector3.new(0, 3, 0)
+    bb.Parent      = part
+
+    local bg = Instance.new("Frame")
+    bg.Size                   = UDim2.new(1, 0, 1, 0)
+    bg.BackgroundColor3       = Color3.fromRGB(140, 0, 0)
+    bg.BackgroundTransparency = 0.1
+    bg.BorderSizePixel        = 0
+    bg.Parent                 = bb
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 6)
+    corner.Parent       = bg
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.new(1, -4, 1, 0)
+    lbl.Position               = UDim2.new(0, 2, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = itemName
+    lbl.TextColor3             = Color3.fromRGB(255, 255, 255)
+    lbl.TextStrokeTransparency = 1
+    lbl.Font                   = Enum.Font.GothamBold
+    lbl.TextSize               = 11
+    lbl.TextScaled             = false
+    lbl.Parent                 = bg
+
+    table.insert(tendrilESPObjects, bb)
+end
+
+local tendrilESPTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+    if not TendrilESPEnabled then return end
+    tendrilESPTimer = tendrilESPTimer + dt
+    if tendrilESPTimer < 1 then return end
+    tendrilESPTimer = 0
+    clearTendrilESP()
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if TENDRIL_NAMES[obj.Name] and obj:IsA("BasePart") then
+            applyTendrilESP(obj, obj.Name)
+        end
+    end
+end)
+
+ESPTab:Toggle({
+    Title = "Tendril/Hand ESP",
+    Desc  = "Highlights SproutTendril and BlotHand",
+    Value = false,
+    Callback = function(state)
+        TendrilESPEnabled = state
+        if not state then clearTendrilESP() end
+    end,
+})
+
+-- =============================================
+-- SILLY STUFF TAB
+-- =============================================
+
+SillyStuffTab:Toggle({
+    Title = "Spin",
+    Desc  = "Spin your character continuously",
+    Value = false,
+    Callback = function(state)
+        SpinEnabled = state
+        if state then startSpin() else stopSpin() end
+    end,
+})
+
+SillyStuffTab:Slider({
+    Title = "Spin Speed",
+    Desc  = "How fast you spin",
+    Step  = 1,
+    Value = { Min = 0, Max = 1000, Default = 50 },
+    Callback = function(value)
+        _G.SpinSpeed = value
+    end,
+})
+
+SillyStuffTab:Button({
+    Title = "Fly (glitched)",
+    Desc  = "Glitched backflip — funny on purpose",
+    Callback = function()
+        local hrp = getHRP(); local h = getHum()
+        if hrp and h then
+            h:ChangeState(Enum.HumanoidStateType.Jumping)
+            task.spawn(function()
+                for _ = 1, 20 do
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(math.rad(18), 0, 0)
+                    task.wait(0.02)
+                end
+            end)
+        end
+    end,
+})
+
+SillyStuffTab:Button({
+    Title = "Fly (glitched) ",
+    Desc  = "Glitched frontflip — also funny on purpose",
+    Callback = function()
+        local hrp = getHRP(); local h = getHum()
+        if hrp and h then
+            h:ChangeState(Enum.HumanoidStateType.Jumping)
+            task.spawn(function()
+                for _ = 1, 20 do
+                    hrp.CFrame = hrp.CFrame * CFrame.Angles(math.rad(-18), 0, 0)
+                    task.wait(0.02)
+                end
+            end)
+        end
+    end,
+})
+
+SillyStuffTab:Toggle({
+    Title = "Moonwalk",
+    Desc  = "Freezes your character's joint angles",
+    Value = false,
+    Callback = function(state)
+        TPoseEnabled = state
+        applyTPose(state)
+    end,
+})
+
+-- =============================================
+-- SCRIPTS TAB
+-- =============================================
+
+ScriptsTab:Button({
+    Title = "Boxten S*X GUI",
+    Desc  = "Loads Boxten S*X GUI",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Team-Noxious/Roblox/refs/heads/main/Loader.lua"))("Boxten Sex GUI")
+    end,
+})
+
+ScriptsTab:Button({
+    Title = "Riddance  (Requires a Key)",
+    Desc  = "Loads the Riddance script hub",
+    Callback = function()
+        getgenv().element_load_delay = 0.1
+        getgenv().extensionload = false
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/riddance-club/script/refs/heads/main/loader.lua"))()
+    end,
+})
+
+ScriptsTab:Button({
+    Title = "Shrimpy Farm 0.0.5  (Requires a Key)",
+    Desc  = "Loads Shrimpy Farm autofarm",
+    Callback = function()
+        getgenv().autoload   = true
+        getgenv().configname = "ShrimpyFarm0.0.5"
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/riddance-club/script/refs/heads/main/loader.lua"))()
+    end,
+})
+
+ScriptsTab:Button({
+    Title = "Glisten's Strip Farm",
+    Desc  = "Loads Glisten's Strip Farm script",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Team-Noxious/Roblox/refs/heads/main/Loader.lua"))("Glisten's Strip Club")
+    end,
+})
+
+ScriptsTab:Button({
+    Title = "Old Riddance Autofarm",
+    Desc  = "Loads the old Riddance DW autofarm",
+    Callback = function()
+        local s = game:HttpGet("https://api.luarmor.net/files/v3/loaders/49070d904c420087ca216a958ed26cca.lua")
+        local r = loadstring(s)
+        if typeof(r) == "function" then
+            pcall(r)
+        else
+            print("Failed to load DW autofarm", r)
+        end
+    end,
+})
+
+ScriptsTab:Button({
+    Title = "Yatta's Crazy GUI",
+    Desc  = "Loads Yatta's AI GUI",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/BluuGuy-Sure/Yatta-s-AI-GUI-stupid/main/Main.lua"))()
+    end,
+})
+
+-- =============================================
+-- CLIENT SIDED TAB
+-- =============================================
+
+ClientSidedTab:Button({
+    Title = "Star Time Skins (Mains only)",
+    Desc  = "Loads Star Time client-sided skins",
+    Callback = function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/Jsssiee/Dreamyyy/refs/heads/main/heydidyounotice1000-7'))()
+    end,
+})
+
+ClientSidedTab:Button({
+    Title = "CS Name",
+    Desc  = "Changes your client-sided nametag",
+    Callback = function()
+        local p = workspace.Players[game.Players.LocalPlayer.Name].HumanoidRootPart.NameTag.Frame
+        p.UserName.Text = "SpinningShrimpoFan"
+        p.DisplayName.Text = "ExploiterFromShrimpo"
+    end,
+})
+
+ClientSidedTab:Button({
+    Title = "CS Dandy",
+    Desc  = "Client-sided Dandy skin",
+    Callback = function()
+        loadstring(game:HttpGet("https://pastefy.app/ONZ1siGs/raw"))()
+    end,
+})
+
+ClientSidedTab:Button({
+    Title = "CS Skin Loader",
+    Desc  = "Client-sided skin loader",
+    Callback = function()
+        loadstring(game:HttpGet("https://pastefy.app/9p6is9Cd/raw"))()
+    end,
+})
+
+ClientSidedTab:Button({
+    Title = "CS Sticker?",
+    Desc  = "Client-sided sticker script",
+    Callback = function()
+        loadstring(game:HttpGet("https://pastefy.app/dhuCumuR/raw"))()
+    end,
+})
+
+ClientSidedTab:Button({
+    Title = "CS BARNABY (Only works with Finn)",
+    Desc  = "Client-sided Barnaby skin — requires Finn",
+    Callback = function()
+        loadstring(game:HttpGet("https://pastefy.app/cZJrzsZO/raw"))()
+    end,
+})
+
+ClientSidedTab:Button({
+    Title = "Barnaby Deleter",
+    Desc  = "Removes Barnaby from your character",
+    Callback = function()
+        local p = game:GetService("Players").LocalPlayer
+        local b = p:FindFirstChild("Barnaby", true) or (p.Character and p.Character:FindFirstChild("Barnaby", true))
+        if b then b:Destroy() end
+    end,
+})
+
+-- =============================================
+-- SOCIALS TAB
+-- =============================================
+
+SocialsTab:Button({
+    Title = "My TikTok  (Copy Link)",
+    Desc  = "Copies @spinningshrimpo TikTok link",
+    Callback = function()
+        setclipboard("https://www.tiktok.com/@spinningshrimpo")
+        notify("Copied!", "TikTok link copied! @spinningshrimpo")
+    end,
+})
+
+SocialsTab:Button({
+    Title = "My YouTube  (Copy Link)",
+    Desc  = "Copies @SpinningShrimpoOffical YouTube link",
+    Callback = function()
+        setclipboard("https://www.youtube.com/@SpinningShrimpoOffical")
+        notify("Copied!", "YouTube link copied! @SpinningShrimpoOffical")
+    end,
+})
+
+SocialsTab:Button({
+    Title = "My Discord  (Copy Link)",
+    Desc  = "Copies the Discord server invite link",
+    Callback = function()
+        setclipboard("https://discord.gg/J6jMgVVfmC")
+        notify("Copied to clipboard", "Discord invite link copied!")
+    end,
+})
+
+-- =============================================
+-- CREDITS TAB
+-- =============================================
+
+CreditsTab:Paragraph({
+    Title   = "Made by spinning Shrimpo",
+    Desc    = "Find me on TikTok / YouTube / Root / Discord",
+})
+
+-- =============================================
+-- STARTUP NOTIFY
+-- =============================================
+task.wait(1)
+notify("Shrimpo's GUI", "Script loaded! All features start OFF.", 5)
